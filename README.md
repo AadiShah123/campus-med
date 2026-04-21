@@ -2,7 +2,7 @@
 
 A full-stack, real-time medical management system designed for campus clinics. This project demonstrates a complete "Circle of Care" workflow between Students, Doctors, and Pharmacists.
 
-**Live Demo:** [YOUR_VERCEL_URL_HERE]
+**Live Demo:** https://campus-med.vercel.app/
 
 ## 🛠️ Tech Stack
 - **Frontend:** Next.js 14 (App Router), Tailwind CSS, Framer Motion
