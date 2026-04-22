@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { auth, db } from "@/lib/firebase";
 import { collection, addDoc, query, where, onSnapshot, orderBy, Timestamp, doc, updateDoc } from "firebase/firestore";
 import { motion, AnimatePresence } from "framer-motion";
+import { generatePrescriptionPDF } from "@/lib/pdfGenerator";
 
 interface Appointment {
   id: string; date?: string; time?: string; reason: string; doctorName: string; 
@@ -22,9 +23,20 @@ export default function StudentDashboard() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [notification, setNotification] = useState<string | null>(null);
-
+  const [height, setHeight] = useState("");
+  const [weight, setWeight] = useState("");
+  const [bp, setBp] = useState("");
+  const [temp, setTemp] = useState("");
+  const [studentName, setStudentName] = useState("");
+  const [studentAge, setStudentAge] = useState("");
+  const [studentGender, setStudentGender] = useState("");
   const [currentMonth, setCurrentMonth] = useState(new Date());
-
+  const calculateBMI = () => {
+  if (!height || !weight) return "--";
+  const h = parseFloat(height) / 100; // convert cm to m
+  const w = parseFloat(weight);
+  return (w / (h * h)).toFixed(1);
+  };
   useEffect(() => { 
     const user = auth.currentUser;
     if (!user) return;
@@ -58,9 +70,19 @@ export default function StudentDashboard() {
       await addDoc(collection(db, "appointments"), {
         studentId: auth.currentUser!.uid,
         studentEmail: auth.currentUser!.email,
+        studentName: studentName || "Unknown", // NEW
+        studentAge: studentAge || "N/A",       // NEW
+        studentGender: studentGender || "N/A", // NEW
         doctorName: "Campus Clinic", 
         reason, 
         status: "requested", 
+        vitals: {
+        height: height || "Not provided",
+        weight: weight || "Not provided",
+        bmi: calculateBMI(),
+        bloodPressure: bp || "Not provided",
+        temperature: temp || "Not provided"
+        },
         createdAt: Timestamp.now(),
       });
       setMessage("Request sent! Waiting for doctor to assign a time."); 
@@ -237,10 +259,55 @@ export default function StudentDashboard() {
               <AnimatePresence>{message && <motion.div className="bg-teal-500/10 border border-teal-500/20 text-teal-400 p-4 rounded-xl text-sm mb-6 font-medium">{message}</motion.div>}</AnimatePresence>
               
               <form onSubmit={handleRequest} className="space-y-6">
+                
+                {/* NEW: Vitals Block */}
+                <div className="bg-neutral-900/60 backdrop-blur-md border border-neutral-800 rounded-3xl p-6 shadow-xl mb-2">
+                  <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                    <svg className="w-5 h-5 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                    Digital Vitals & Biometrics
+                  </h3>
+                  
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {/* Height */}
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-neutral-500 uppercase tracking-wider">Height (cm)</label>
+                      <input type="number" value={height} onChange={(e) => setHeight(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-2.5 text-white outline-none focus:border-teal-500 transition-colors" placeholder="175" />
+                    </div>
+                    
+                    {/* Weight */}
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-neutral-500 uppercase tracking-wider">Weight (kg)</label>
+                      <input type="number" value={weight} onChange={(e) => setWeight(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-2.5 text-white outline-none focus:border-teal-500 transition-colors" placeholder="70" />
+                    </div>
+
+                    {/* Live BMI Display */}
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-neutral-500 uppercase tracking-wider">Calculated BMI</label>
+                      <div className="w-full bg-teal-500/10 border border-teal-500/20 rounded-xl px-4 py-2.5 text-teal-400 font-black flex items-center justify-between">
+                        {calculateBMI()}
+                        <span className="text-[10px] font-bold text-teal-500 uppercase">Index</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 mt-4">
+                     <div className="space-y-1">
+                      <label className="text-xs font-bold text-neutral-500 uppercase tracking-wider">Blood Pressure</label>
+                      <input type="text" value={bp} onChange={(e) => setBp(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-2.5 text-white outline-none focus:border-teal-500 transition-colors" placeholder="120/80" />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-neutral-500 uppercase tracking-wider">Temperature</label>
+                      <input type="text" value={temp} onChange={(e) => setTemp(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-2.5 text-white outline-none focus:border-teal-500 transition-colors" placeholder="98.6 °F" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Original Symptoms Box */}
                 <div>
                   <label className="block text-xs font-black uppercase tracking-widest text-neutral-400 mb-3 ml-1">Symptoms / Reason for visit</label>
-                  <textarea required value={reason} onChange={(e) => setReason(e.target.value)} rows={6} placeholder="Please describe how you are feeling in detail..." className="w-full bg-neutral-950/80 border border-neutral-800 rounded-2xl px-5 py-4 text-white outline-none resize-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 transition-all shadow-inner placeholder:text-neutral-600" />
+                  <textarea required value={reason} onChange={(e) => setReason(e.target.value)} rows={4} placeholder="Please describe how you are feeling in detail..." className="w-full bg-neutral-950/80 border border-neutral-800 rounded-2xl px-5 py-4 text-white outline-none resize-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 transition-all shadow-inner placeholder:text-neutral-600" />
                 </div>
+                
                 <button type="submit" disabled={isSubmitting} className="w-full bg-gradient-to-r from-teal-500 to-emerald-500 text-neutral-950 font-black tracking-wide py-4 rounded-2xl hover:scale-[1.02] hover:shadow-xl hover:shadow-teal-500/20 transition-all duration-300 disabled:opacity-50 disabled:hover:scale-100">
                   {isSubmitting ? "Pushing Request..." : "Submit to Doctor Queue"}
                 </button>
@@ -288,10 +355,19 @@ export default function StudentDashboard() {
                             <span className="text-xs text-neutral-500 font-bold mb-1">Campus Pharmacy</span>
                             <span className="text-sm text-teal-400 font-bold animate-pulse">Show code at counter</span>
                           </div>
-                          <button onClick={() => handleMarkSelfDone(apt.id)} className="bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-bold py-4 rounded-2xl transition-all border border-neutral-700 hover:border-neutral-500 text-sm flex flex-col items-center justify-center">
-                            <span>Procured Elsewhere?</span>
-                            <span className="text-xs font-normal text-neutral-500 mt-0.5">Mark as Done</span>
-                          </button>
+                          <div className="mt-auto grid md:grid-cols-2 gap-4">
+                            {/* New PDF Button */}
+                            <button onClick={() => generatePrescriptionPDF(apt)} className="bg-teal-500/10 hover:bg-teal-500 text-teal-400 hover:text-neutral-950 font-bold py-4 rounded-2xl transition-all border border-teal-500/30 hover:border-teal-500 text-sm flex flex-col items-center justify-center group">
+                              <span>Download PDF</span>
+                              <span className="text-xs font-normal text-teal-500/70 group-hover:text-teal-900 mt-0.5">Official Prescription</span>
+                            </button>
+                            
+                            {/* Existing Self Procured Button */}
+                            <button onClick={() => handleMarkSelfDone(apt.id)} className="bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-bold py-4 rounded-2xl transition-all border border-neutral-700 hover:border-neutral-500 text-sm flex flex-col items-center justify-center">
+                              <span>Procured Elsewhere?</span>
+                              <span className="text-xs font-normal text-neutral-500 mt-0.5">Mark as Done</span>
+                            </button>
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -303,36 +379,44 @@ export default function StudentDashboard() {
               <section>
                 <h3 className="text-xl font-bold text-white mb-6">Dispensed History</h3>
                 <div className="bg-neutral-900/80 backdrop-blur-md border border-neutral-800 rounded-3xl overflow-hidden shadow-xl">
-                  <table className="w-full text-left text-sm text-neutral-400">
-                    <thead className="bg-neutral-950/80 border-b border-neutral-800 uppercase tracking-wider text-[10px] font-black text-neutral-500">
-                      <tr>
-                        <th className="px-8 py-5">Date</th>
-                        <th className="px-8 py-5">Code</th>
-                        <th className="px-8 py-5">Fulfillment</th>
-                        <th className="px-8 py-5">Notes</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-neutral-800/50">
-                      {pastPrescriptions.slice(0, 15).map(apt => (
-                        <tr key={apt.id} className="hover:bg-neutral-800/40 transition-colors">
-                          <td className="px-8 py-5 font-medium whitespace-nowrap">{apt.date}</td>
-                          <td className="px-8 py-5 font-mono text-neutral-300">{apt.prescriptionCode}</td>
-                          <td className="px-8 py-5">
-                            {/* Read the new dispensedMethod! */}
-                            {(apt as any).dispensedMethod === "self_procured" ? (
-                               <span className="bg-neutral-800 text-neutral-400 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider border border-neutral-700">Self Procured</span>
-                            ) : (
-                               <span className="bg-emerald-500/10 text-emerald-400 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider border border-emerald-500/20">Pharmacy</span>
-                            )}
-                          </td>
-                          <td className="px-8 py-5 max-w-xs truncate">{apt.prescriptionNotes}</td>
+                  <div className="overflow-x-auto w-full scrollbar-hide">
+                    <table className="w-full min-w-[800px] text-left text-sm text-neutral-400">
+                      <thead className="bg-neutral-950/80 border-b border-neutral-800 uppercase tracking-wider text-[10px] font-black text-neutral-500">
+                        <tr>
+                          <th className="px-8 py-5">Date</th>
+                          <th className="px-8 py-5">Code</th>
+                          <th className="px-8 py-5">Fulfillment</th>
+                          <th className="px-8 py-5">Notes</th>
+                          <th className="px-8 py-5 text-right">Action</th>
                         </tr>
-                      ))}
-                      {pastPrescriptions.length === 0 && (
-                        <tr><td colSpan={4} className="px-8 py-12 text-center text-neutral-500">No prescription history yet.</td></tr>
-                      )}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-neutral-800/50">
+                        {pastPrescriptions.slice(0, 15).map(apt => (
+                          <tr key={apt.id} className="hover:bg-neutral-800/40 transition-colors">
+                            <td className="px-8 py-5 font-medium whitespace-nowrap text-white">{apt.date}</td>
+                            <td className="px-8 py-5 font-mono text-neutral-300">{apt.prescriptionCode}</td>
+                            <td className="px-8 py-5">
+                              {(apt as any).dispensedMethod === "self_procured" ? (
+                                 <span className="bg-neutral-800 text-neutral-400 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider border border-neutral-700">Self Procured</span>
+                              ) : (
+                                 <span className="bg-emerald-500/10 text-emerald-400 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider border border-emerald-500/20">Pharmacy</span>
+                              )}
+                            </td>
+                            <td className="px-8 py-5 max-w-xs truncate">{apt.prescriptionNotes}</td>
+                            <td className="px-8 py-5 text-right">
+                              <button onClick={() => generatePrescriptionPDF(apt)} className="text-[10px] bg-neutral-800 hover:bg-neutral-700 text-teal-400 font-bold px-4 py-2 rounded-lg transition-colors uppercase tracking-widest border border-neutral-700 hover:border-teal-500/50 flex items-center gap-2 ml-auto">
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                                PDF
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                        {pastPrescriptions.length === 0 && (
+                          <tr><td colSpan={5} className="px-8 py-12 text-center text-neutral-500">No prescription history yet.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </section>
 
