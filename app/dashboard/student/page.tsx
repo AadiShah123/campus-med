@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { auth, db } from "@/lib/firebase";
-import { collection, addDoc, query, where, onSnapshot, orderBy, Timestamp, doc, updateDoc } from "firebase/firestore";
+import { collection, addDoc, getDocs, getDoc, query, where, onSnapshot, orderBy, Timestamp, doc, updateDoc } from "firebase/firestore";
 import { motion, AnimatePresence } from "framer-motion";
 import { generatePrescriptionPDF } from "@/lib/pdfGenerator";
 
@@ -61,6 +61,49 @@ export default function StudentDashboard() {
     });
 
     return () => unsubscribe();
+  }, []);
+  // Fetch user profile data on load
+  useEffect(() => {
+    const fetchUserProfile = async () => {
+      if (auth.currentUser) {
+        try {
+          // Assuming you save users in a "users" collection using their Auth UID as the document ID
+          const userDocRef = doc(db, "users", auth.currentUser.uid);
+          const userDocSnap = await getDoc(userDocRef);
+
+          if (userDocSnap.exists()) {
+            const userData = userDocSnap.data();
+            
+            // 1. Stitch the first and last name together
+            const fullName = `${userData.firstName || ""} ${userData.lastName || ""}`.trim();
+            setStudentName(fullName || auth.currentUser.displayName || "");
+            
+            // 2. Calculate their actual age from the 'dob' string
+            let calculatedAge = "";
+            if (userData.dob) {
+              const birthDate = new Date(userData.dob);
+              const today = new Date();
+              let age = today.getFullYear() - birthDate.getFullYear();
+              const monthDiff = today.getMonth() - birthDate.getMonth();
+              // Subtract 1 if their birthday hasn't happened yet this year
+              if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+                age--;
+              }
+              calculatedAge = age.toString();
+            }
+            setStudentAge(calculatedAge);
+
+            // 3. Gender was already working!
+            setStudentGender(userData.gender || "");
+          }
+        } catch (error) {
+          console.error("Error fetching user profile:", error);
+        }
+      }
+    };
+
+    // Give auth a second to initialize if needed, though usually onAuthStateChanged handles this better in production
+    fetchUserProfile();
   }, []);
 
   const handleRequest = async (e: React.FormEvent) => {

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { auth, db } from "@/lib/firebase";
-import { collection, query, getDocs, doc, updateDoc, orderBy } from "firebase/firestore";
+import { collection, query, getDocs, doc, updateDoc, orderBy, where, getDoc } from "firebase/firestore";
 import { motion, AnimatePresence } from "framer-motion";
 import { generatePrescriptionPDF } from "@/lib/pdfGenerator";
 
@@ -40,6 +40,37 @@ export default function DoctorDashboard() {
   };
 
   useEffect(() => { fetchAppointments(); }, []);
+  const [doctorProfileName, setDoctorProfileName] = useState("");
+
+  // Fetch Doctor profile data on load
+  // Fetch Doctor profile data on load
+  useEffect(() => {
+    const fetchDoctorProfile = async () => {
+      if (auth.currentUser) {
+        try {
+          const docRef = doc(db, "users", auth.currentUser.uid);
+          const docSnap = await getDoc(docRef);
+
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            
+            // Just in case, let's log it so we can see if doctors have a different schema!
+            console.log("🩺 DOCTOR DB RECORD:", data);
+
+            // Stitch the first and last name together, just like we did for students
+            const fullName = `${data.firstName || ""} ${data.lastName || ""}`.trim();
+            
+            // Set it with all our fallbacks
+            setDoctorProfileName(fullName || data.name || auth.currentUser.displayName || "");
+          }
+        } catch (error) {
+          console.error("Error fetching doctor profile:", error);
+        }
+      }
+    };
+
+    fetchDoctorProfile();
+  }, []);
 
   const requestedApts = appointments.filter(a => a.status === "requested");
   const scheduledApts = appointments.filter(a => a.status === "scheduled"); // Active Patients
@@ -48,14 +79,28 @@ export default function DoctorDashboard() {
     e.preventDefault();
     if (!selectedRequest) return;
     setIsUpdating(true);
+    
     try {
-      // Also assign the current doctor's email to the appointment
+      // Use the fetched profile name, fallback to "Campus Doctor" if all else fails
+      const finalDocName = doctorProfileName ? `Dr. ${doctorProfileName}` : "Dr. Campus";
+
       await updateDoc(doc(db, "appointments", selectedRequest.id), { 
-        status: "scheduled", date: newDate, time: newTime, doctorName: auth.currentUser?.displayName || "Dr. d", // Or whatever the doctor's name is 
-        doctorEmail: auth.currentUser?.email // NEW: Grabs the logged-in doctor's email 
+        status: "scheduled", 
+        date: newDate, 
+        time: newTime, 
+        doctorName: finalDocName, // <-- Using our new pristine variable
+        doctorEmail: auth.currentUser?.email 
       });
-      setSelectedRequest(null); setNewDate(""); setNewTime(""); fetchAppointments();
-    } catch (e) { alert("Failed to schedule."); } finally { setIsUpdating(false); }
+      
+      setSelectedRequest(null); 
+      setNewDate(""); 
+      setNewTime(""); 
+      fetchAppointments();
+    } catch (e) { 
+      alert("Failed to schedule."); 
+    } finally { 
+      setIsUpdating(false); 
+    }
   };
 
   const handleReschedule = async (aptId: string) => {
