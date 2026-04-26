@@ -6,7 +6,7 @@ import { collection, query, getDocs, orderBy, onSnapshot, doc, updateDoc, delete
 import { motion, AnimatePresence } from "framer-motion";
 
 interface UserData {
-  id: string; email: string; firstName: string; lastName: string; role: string;
+  id: string; email: string; firstName: string; lastName: string; role: string; status?: string; // Added status
 }
 
 interface AppointmentData {
@@ -17,9 +17,10 @@ export default function AdminDashboard() {
   const [users, setUsers] = useState<UserData[]>([]);
   const [appointments, setAppointments] = useState<AppointmentData[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"overview" | "users">("overview");
   
-  // New Toast Notification State
+  // NEW: Added "approvals" to the activeTab state
+  const [activeTab, setActiveTab] = useState<"overview" | "users" | "approvals">("overview");
+  
   const [notification, setNotification] = useState<string | null>(null);
 
   const fetchUsers = async () => {
@@ -29,10 +30,8 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => {
-    // Fetch users manually on load (and when we trigger a refresh)
     fetchUsers();
 
-    // Real-time listener for the appointment feed
     const qApts = query(collection(db, "appointments"), orderBy("createdAt", "desc"));
     const unsubApts = onSnapshot(qApts, (snapshot) => {
       setAppointments(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as AppointmentData));
@@ -42,19 +41,41 @@ export default function AdminDashboard() {
     return () => unsubApts();
   }, []);
 
-  // --- NEW ADMIN WRITE FUNCTIONS --- //
-
   const showToast = (msg: string) => {
     setNotification(msg);
     setTimeout(() => setNotification(null), 4000);
   };
 
+  // --- NEW: APPROVAL FUNCTIONS --- //
+  const handleApproveAccount = async (userId: string, role: string) => {
+    if (!confirm(`Approve this ${role.toUpperCase()} account for medical system access?`)) return;
+    try {
+      await updateDoc(doc(db, "users", userId), { status: "approved" });
+      showToast(`${role} account approved successfully.`);
+      fetchUsers(); 
+    } catch (error) {
+      alert("Failed to approve account.");
+    }
+  };
+
+  const handleRejectAccount = async (userId: string) => {
+    if (!confirm("Reject and permanently delete this pending request?")) return;
+    try {
+      await deleteDoc(doc(db, "users", userId));
+      showToast("Pending request rejected and deleted.");
+      fetchUsers(); 
+    } catch (error) {
+      alert("Failed to reject request.");
+    }
+  };
+
+  // --- EXISTING ADMIN WRITE FUNCTIONS --- //
   const handleUpdateRole = async (userId: string, newRole: string) => {
     if (!confirm(`Change this user's role to ${newRole.toUpperCase()}?`)) return;
     try {
       await updateDoc(doc(db, "users", userId), { role: newRole });
       showToast("User role updated successfully.");
-      fetchUsers(); // Refresh the table
+      fetchUsers(); 
     } catch (error) {
       alert("Failed to update user role.");
     }
@@ -65,7 +86,7 @@ export default function AdminDashboard() {
     try {
       await deleteDoc(doc(db, "users", userId));
       showToast("User profile deleted.");
-      fetchUsers(); // Refresh the table
+      fetchUsers(); 
     } catch (error) {
       alert("Failed to delete user.");
     }
@@ -76,7 +97,6 @@ export default function AdminDashboard() {
     try {
       await deleteDoc(doc(db, "appointments", aptId));
       showToast("Appointment deleted.");
-      // No need to fetch, onSnapshot handles the UI update automatically!
     } catch (error) {
       alert("Failed to delete appointment.");
     }
@@ -84,15 +104,14 @@ export default function AdminDashboard() {
 
   // Stats Calculations
   const students = users.filter(u => u.role === "student");
-  const doctors = users.filter(u => u.role === "doctor");
-  const pharmacy = users.filter(u => u.role === "pharmacy");
+  // NEW: Filter out pending users for the approvals tab
+  const pendingUsers = users.filter(u => u.status === "pending");
   const pendingApts = appointments.filter(a => a.status === "requested" || a.status === "scheduled");
   const completedApts = appointments.filter(a => a.status === "completed");
 
   return (
     <div className="space-y-8 relative max-w-7xl mx-auto">
       
-      {/* Admin Toast Notification */}
       <AnimatePresence>
         {notification && (
           <motion.div initial={{ opacity: 0, y: 50, scale: 0.9 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 20, scale: 0.9 }} className="fixed bottom-8 right-8 z-50 bg-amber-500 text-neutral-950 px-6 py-4 rounded-2xl font-bold shadow-2xl flex items-center gap-3 border-2 border-amber-400">
@@ -102,9 +121,14 @@ export default function AdminDashboard() {
         )}
       </AnimatePresence>
 
+      {/* Tabs */}
       <div className="flex gap-4 border-b border-neutral-800/50 pb-4 overflow-x-auto scrollbar-hide">
         <button onClick={() => setActiveTab("overview")} className={`whitespace-nowrap px-6 py-2.5 rounded-full font-bold text-sm transition-all duration-300 ${activeTab === "overview" ? "bg-amber-500 text-neutral-950 shadow-lg shadow-amber-500/20" : "bg-neutral-900/50 text-neutral-400 hover:bg-neutral-800 hover:text-white backdrop-blur-sm"}`}>
           System Overview
+        </button>
+        <button onClick={() => setActiveTab("approvals")} className={`whitespace-nowrap px-6 py-2.5 rounded-full font-bold text-sm transition-all duration-300 flex items-center gap-2 ${activeTab === "approvals" ? "bg-amber-500 text-neutral-950 shadow-lg shadow-amber-500/20" : "bg-neutral-900/50 text-neutral-400 hover:bg-neutral-800 hover:text-white backdrop-blur-sm"}`}>
+          Pending Approvals
+          {pendingUsers.length > 0 && <span className={`px-2 py-0.5 rounded-full text-xs text-white ${activeTab === "approvals" ? "bg-neutral-950" : "bg-red-500 animate-pulse"}`}>{pendingUsers.length}</span>}
         </button>
         <button onClick={() => setActiveTab("users")} className={`whitespace-nowrap px-6 py-2.5 rounded-full font-bold text-sm transition-all duration-300 ${activeTab === "users" ? "bg-amber-500 text-neutral-950 shadow-lg shadow-amber-500/20" : "bg-neutral-900/50 text-neutral-400 hover:bg-neutral-800 hover:text-white backdrop-blur-sm"}`}>
           User Directory & Access
@@ -116,7 +140,6 @@ export default function AdminDashboard() {
           {/* TAB 1: SYSTEM OVERVIEW */}
           {activeTab === "overview" && (
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-8">
-              
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                 <div className="bg-neutral-900/60 backdrop-blur-md border border-neutral-800 rounded-3xl p-6 shadow-xl relative overflow-hidden group">
                   <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/10 rounded-full blur-2xl group-hover:bg-amber-500/20 transition-colors" />
@@ -158,12 +181,7 @@ export default function AdminDashboard() {
                             apt.status === 'scheduled' ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20' : 'bg-neutral-800/50 text-neutral-400 border-neutral-700'}`}>
                           {apt.status}
                         </span>
-                        {/* ADMIN WRITE ACTION: Delete Appointment */}
-                        <button 
-                          onClick={() => handleDeleteAppointment(apt.id)}
-                          className="text-red-500 hover:bg-red-500/10 p-2 rounded-lg opacity-50 group-hover:opacity-100 transition-all"
-                          title="Delete Appointment"
-                        >
+                        <button onClick={() => handleDeleteAppointment(apt.id)} className="text-red-500 hover:bg-red-500/10 p-2 rounded-lg opacity-50 group-hover:opacity-100 transition-all" title="Delete Appointment">
                           ✕
                         </button>
                       </div>
@@ -175,7 +193,44 @@ export default function AdminDashboard() {
             </motion.div>
           )}
 
-          {/* TAB 2: USER DIRECTORY (WITH WRITE ACCESS) */}
+          {/* TAB 2: PENDING APPROVALS (NEW) */}
+          {activeTab === "approvals" && (
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-neutral-900/60 backdrop-blur-md border border-neutral-800 rounded-3xl overflow-hidden shadow-xl">
+              <div className="p-6 border-b border-neutral-800 bg-neutral-900/40">
+                <h3 className="text-xl font-bold text-white flex items-center gap-3">Pending Medical Staff Approvals</h3>
+                <p className="text-sm text-neutral-400 mt-1">Review and verify credentials before granting dashboard access to new staff.</p>
+              </div>
+              
+              {pendingUsers.length === 0 ? (
+                <div className="p-16 text-center text-neutral-500 text-lg">No pending account approvals at this time.</div>
+              ) : (
+                <table className="w-full text-left text-sm text-neutral-400">
+                  <thead className="bg-neutral-950/80 border-b border-neutral-800 uppercase tracking-wider text-[10px] font-black text-neutral-500">
+                    <tr><th className="px-8 py-5">Applicant Name</th><th className="px-8 py-5">Email</th><th className="px-8 py-5">Requested Role</th><th className="px-8 py-5 text-right">Actions</th></tr>
+                  </thead>
+                  <tbody className="divide-y divide-neutral-800/50">
+                    {pendingUsers.map(user => (
+                      <tr key={user.id} className="hover:bg-neutral-800/40 transition-colors">
+                        <td className="px-8 py-5 font-bold text-white">{user.firstName} {user.lastName}</td>
+                        <td className="px-8 py-5">{user.email}</td>
+                        <td className="px-8 py-5">
+                          <span className={`px-3 py-1 rounded text-xs font-bold uppercase tracking-widest ${user.role === 'doctor' ? 'bg-blue-500/10 text-blue-400' : 'bg-purple-500/10 text-purple-400'}`}>
+                            {user.role}
+                          </span>
+                        </td>
+                        <td className="px-8 py-5 flex justify-end gap-3">
+                          <button onClick={() => handleRejectAccount(user.id)} className="px-4 py-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-lg text-xs font-bold transition-all">Reject</button>
+                          <button onClick={() => handleApproveAccount(user.id, user.role)} className="px-4 py-2 bg-emerald-500 text-neutral-950 hover:bg-emerald-400 rounded-lg text-xs font-bold transition-all shadow-lg shadow-emerald-500/20">Approve Access</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </motion.div>
+          )}
+
+          {/* TAB 3: USER DIRECTORY (UPDATED WITH STATUS) */}
           {activeTab === "users" && (
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-neutral-900/60 backdrop-blur-md border border-neutral-800 rounded-3xl overflow-hidden shadow-xl">
               <div className="p-6 border-b border-neutral-800 bg-neutral-900/40">
@@ -185,20 +240,21 @@ export default function AdminDashboard() {
               
               <table className="w-full text-left text-sm text-neutral-400">
                 <thead className="bg-neutral-950/80 border-b border-neutral-800 uppercase tracking-wider text-[10px] font-black text-neutral-500">
-                  <tr>
-                    <th className="px-8 py-5">Name</th>
-                    <th className="px-8 py-5">Email</th>
-                    <th className="px-8 py-5">System Role</th>
-                    <th className="px-8 py-5 text-right">Actions</th>
-                  </tr>
+                  <tr><th className="px-8 py-5">Name & Status</th><th className="px-8 py-5">Email</th><th className="px-8 py-5">System Role</th><th className="px-8 py-5 text-right">Actions</th></tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-800/50">
                   {users.map(user => (
                     <tr key={user.id} className="hover:bg-neutral-800/40 transition-colors">
-                      <td className="px-8 py-5 font-bold text-white">{user.firstName} {user.lastName}</td>
+                      <td className="px-8 py-5">
+                        <div className="font-bold text-white mb-1">{user.firstName} {user.lastName}</div>
+                        {/* Status Indicator */}
+                        {user.status === 'pending' ? (
+                          <span className="text-[10px] bg-red-500/10 text-red-400 px-2 py-0.5 rounded font-bold uppercase tracking-widest">Pending</span>
+                        ) : (
+                          <span className="text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded font-bold uppercase tracking-widest">Approved</span>
+                        )}
+                      </td>
                       <td className="px-8 py-5">{user.email}</td>
-                      
-                      {/* ADMIN WRITE ACTION: Change Role */}
                       <td className="px-8 py-5">
                         <select 
                           value={user.role}
@@ -215,8 +271,6 @@ export default function AdminDashboard() {
                           <option value="admin">Admin</option>
                         </select>
                       </td>
-                      
-                      {/* ADMIN WRITE ACTION: Delete Profile */}
                       <td className="px-8 py-5 text-right">
                         <button 
                           onClick={() => handleDeleteUser(user.id)}

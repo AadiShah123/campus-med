@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { db } from "@/lib/firebase";
-import { collection, query, where, onSnapshot, doc, updateDoc, addDoc, orderBy, Timestamp, deleteDoc } from "firebase/firestore";
+import { auth, db } from "@/lib/firebase"; // Added auth
+import { onAuthStateChanged } from "firebase/auth"; // Added for secure fetching
+import { collection, query, where, onSnapshot, doc, updateDoc, addDoc, orderBy, Timestamp, deleteDoc, getDoc } from "firebase/firestore"; // Added getDoc
 import { motion, AnimatePresence } from "framer-motion";
 
 interface Prescription {
@@ -12,7 +13,7 @@ interface Prescription {
 }
 
 interface InventoryItem {
-  id: string; name: string; stock: number; maxStock: number; // Added maxStock to calculate percentages!
+  id: string; name: string; stock: number; maxStock: number; 
 }
 
 interface StagedMed { invId: string; name: string; qty: number; }
@@ -31,7 +32,37 @@ export default function PharmacyDashboard() {
 
   const [stagedMeds, setStagedMeds] = useState<Record<string, StagedMed[]>>({});
   const [medInputs, setMedInputs] = useState<Record<string, { invId: string, qty: number }>>({});
+  
+  // NEW: Account Status State
+  const [accountStatus, setAccountStatus] = useState("loading"); // "loading", "pending", or "approved"
 
+  // 1. Auth & Profile Fetching (The Bouncer logic)
+  useEffect(() => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        try {
+          const docRef = doc(db, "users", user.uid);
+          const docSnap = await getDoc(docRef);
+
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            setAccountStatus(data.status || "pending"); 
+          } else {
+            setAccountStatus("pending");
+          }
+        } catch (error) {
+          console.error("Error fetching pharmacy profile:", error);
+          setAccountStatus("pending");
+        }
+      } else {
+        setAccountStatus("pending"); 
+      }
+    });
+
+    return () => unsubscribeAuth();
+  }, []);
+
+  // 2. Pharmacy Data Fetching
   useEffect(() => {
     const qApt = query(collection(db, "appointments"), where("status", "==", "completed"), orderBy("date", "desc"));
     const unsubApt = onSnapshot(qApt, (snapshot) => {
@@ -41,7 +72,6 @@ export default function PharmacyDashboard() {
 
     const qInv = query(collection(db, "inventory"), orderBy("name", "asc"));
     const unsubInv = onSnapshot(qInv, (snapshot) => {
-      // FIX: Cast the individual object to InventoryItem, not the array!
       setInventory(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as InventoryItem)));
       setLoading(false);
     });
@@ -58,7 +88,6 @@ export default function PharmacyDashboard() {
     if (!newMedName || !newMedStock) return;
     try {
       const initStock = parseInt(newMedStock);
-      // Save maxStock so we can calculate colors later
       await addDoc(collection(db, "inventory"), { name: newMedName, stock: initStock, maxStock: initStock });
       setNewMedName(""); setNewMedStock("");
       showToast(`Added ${newMedName} to inventory.`);
@@ -67,7 +96,6 @@ export default function PharmacyDashboard() {
 
   const handleUpdateStock = async (invId: string, currentStock: number, change: number, currentMax: number) => {
     const newStock = Math.max(0, currentStock + change);
-    // If they add more than they've ever had, update the max
     const newMax = Math.max(currentMax || 0, newStock); 
     await updateDoc(doc(db, "inventory", invId), { stock: newStock, maxStock: newMax });
   };
@@ -117,14 +145,37 @@ export default function PharmacyDashboard() {
     setTimeout(() => setNotification(null), 4000);
   };
 
-  // --- Dynamic Color Logic ---
   const getStockColor = (stock: number, maxStock: number) => {
     if (!maxStock || maxStock === 0) return 'bg-neutral-900 text-white border-neutral-700'; 
     const pct = (stock / maxStock) * 100;
     if (pct > 50) return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
     if (pct > 20) return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30';
-    return 'bg-red-500/20 text-red-400 border-red-500/50 animate-pulse'; // Red & pulsing if critical!
+    return 'bg-red-500/20 text-red-400 border-red-500/50 animate-pulse'; 
   };
+
+  // --- THE BOUNCER ---
+  if (accountStatus === "loading") {
+    return <div className="min-h-screen flex items-center justify-center text-teal-500 font-bold">Verifying authorization...</div>;
+  }
+
+  if (accountStatus === "pending") {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center bg-neutral-950">
+        <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-10 max-w-md shadow-2xl relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-1 bg-teal-500"></div>
+          <svg className="w-20 h-20 text-teal-500 mx-auto mb-6 opacity-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+          <h1 className="text-2xl font-black text-white mb-4 uppercase tracking-tight">Access Restricted</h1>
+          <p className="text-neutral-400 mb-8 leading-relaxed text-sm">
+            For security compliance, all pharmacy staff accounts require manual clearance from the University Administration. Contact the admin office to expedite your approval.
+          </p>
+          <button onClick={() => auth.signOut()} className="w-full bg-white text-neutral-950 font-black py-3.5 rounded-xl uppercase tracking-widest hover:bg-teal-400 transition-colors">
+            Sign Out
+          </button>
+        </div>
+      </div>
+    );
+  }
+  // --- END OF BOUNCER ---
 
   return (
     <div className="space-y-8 relative max-w-6xl mx-auto">

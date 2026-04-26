@@ -70,6 +70,7 @@ export default function LoginPage() {
           gender: finalRole === "admin" ? "N/A" : gender,
           dob: finalRole === "admin" ? "1970-01-01" : dob, 
           role: finalRole,
+          status: (finalRole === "student" || finalRole === "admin") ? "approved" : "pending",
           createdAt: new Date(),
         });
         

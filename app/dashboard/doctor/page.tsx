@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { auth, db } from "@/lib/firebase";
 import { collection, query, getDocs, doc, updateDoc, orderBy, where, getDoc } from "firebase/firestore";
+import { onAuthStateChanged } from "firebase/auth"; // <-- ADD THIS
 import { motion, AnimatePresence } from "framer-motion";
 import { generatePrescriptionPDF } from "@/lib/pdfGenerator";
 
@@ -30,6 +31,7 @@ export default function DoctorDashboard() {
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [rescheduleData, setRescheduleData] = useState<Record<string, {date: string, time: string}>>({});
   const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [accountStatus, setAccountStatus] = useState("loading"); // "loading", "pending", or "approved"
 
   const fetchAppointments = async () => {
     try {
@@ -43,33 +45,33 @@ export default function DoctorDashboard() {
   const [doctorProfileName, setDoctorProfileName] = useState("");
 
   // Fetch Doctor profile data on load
-  // Fetch Doctor profile data on load
+  // Fetch Doctor profile data securely
   useEffect(() => {
-    const fetchDoctorProfile = async () => {
-      if (auth.currentUser) {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
         try {
-          const docRef = doc(db, "users", auth.currentUser.uid);
+          const docRef = doc(db, "users", user.uid);
           const docSnap = await getDoc(docRef);
 
           if (docSnap.exists()) {
             const data = docSnap.data();
-            
-            // Just in case, let's log it so we can see if doctors have a different schema!
+            setAccountStatus(data.status || "pending"); 
             console.log("🩺 DOCTOR DB RECORD:", data);
 
-            // Stitch the first and last name together, just like we did for students
             const fullName = `${data.firstName || ""} ${data.lastName || ""}`.trim();
-            
-            // Set it with all our fallbacks
-            setDoctorProfileName(fullName || data.name || auth.currentUser.displayName || "");
+            setDoctorProfileName(fullName || data.name || user.displayName || "");
           }
         } catch (error) {
           console.error("Error fetching doctor profile:", error);
         }
+      } else {
+        // If they somehow aren't logged in, kick them to a fallback state
+        setAccountStatus("pending"); 
       }
-    };
+    });
 
-    fetchDoctorProfile();
+    // Cleanup the listener when the component unmounts
+    return () => unsubscribe();
   }, []);
 
   const requestedApts = appointments.filter(a => a.status === "requested");
@@ -142,6 +144,28 @@ export default function DoctorDashboard() {
     setActiveDayStr(dateStr);
     setSelectedDayApts(apts);
   };
+  // --- THE BOUNCER ---
+  if (accountStatus === "loading") {
+    return <div className="min-h-screen flex items-center justify-center text-teal-500">Loading profile...</div>;
+  }
+
+  if (accountStatus === "pending") {
+    return (
+      <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950 flex flex-col items-center justify-center p-6 text-center">
+        <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-3xl p-10 max-w-md shadow-2xl">
+          <svg className="w-20 h-20 text-teal-500 mx-auto mb-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+          <h1 className="text-2xl font-black text-neutral-900 dark:text-white mb-4 uppercase tracking-tight">Account Pending Verification</h1>
+          <p className="text-neutral-500 dark:text-neutral-400 mb-8 leading-relaxed">
+            For security purposes, all medical staff accounts must be manually verified by the University Administration. Please contact the admin office to expedite your approval.
+          </p>
+          <button onClick={() => auth.signOut()} className="w-full bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 font-bold py-3 rounded-xl uppercase tracking-widest hover:scale-[1.02] transition-transform">
+            Sign Out
+          </button>
+        </div>
+      </div>
+    );
+  }
+  // --- END OF BOUNCER ---
   return (
     <div className="space-y-8">
       
